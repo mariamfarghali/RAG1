@@ -31,8 +31,9 @@ HR_RAG/
 │
 └── README.md
 
-Usage Example
+# Usage Example
 ✅ POST /api/rag/ask
+
 json
 Copy
 Edit
@@ -41,14 +42,10 @@ Edit
   "question": "What is the sick leave policy?"
 }
 
- Tech Stack
-.NET 8 + Entity Framework Core
-
-Python 3.x (RAG model with text similarity + LLM)
-
-PostgreSQL
-
-Langchain / FAISS / HuggingFace (in Python backend)
-
-Swagger enabled for easy API testing
+# Tech Stack
+- .NET 8 + Entity Framework Core
+- Python 3.x (RAG model with text similarity + LLM)
+- PostgreSQL
+- Langchain / FAISS / HuggingFace (in Python backend)
+- Swagger enabled for easy API testing
 
