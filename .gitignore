@@ -2,8 +2,12 @@
 **/bin/
 **/obj/
 
-# Python virtual environment
-rag_env/
+# Ignore the whole rag_env folder EXCEPT data and src
+rag_env/*
+!rag_env/data/
+!rag_env/src/
+
+
 
 # VSCode settings and local user settings
 .vscode/
