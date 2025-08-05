@@ -1,0 +1,6 @@
+@HrRagApi_HostAddress = http://localhost:5239
+
+GET {{HrRagApi_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
