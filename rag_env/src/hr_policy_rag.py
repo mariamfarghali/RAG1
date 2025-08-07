@@ -2,9 +2,14 @@ from langchain.text_splitter import CharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
 import os
+import numpy as np
+from langchain.embeddings.base import Embeddings
+from sklearn.metrics.pairwise import cosine_similarity
 from langchain.chains import RetrievalQA
 from langchain_ollama import ChatOllama
-from langchain.prompts import PromptTemplate
+from langchain_core.documents import Document
+from langchain.prompts import PromptTemplate\
+
 
 
 
@@ -12,9 +17,9 @@ class HRPolicyRAG:
     def __init__(
         self,
         file_paths,
-        model_name="all-MiniLM-L6-v2",
-        chunk_size=500,
-        chunk_overlap=50,
+        model_name="all-MiniLM-L6-v2", #max context window = 128k tokens
+        chunk_size=1500,               #old=500
+        chunk_overlap=200,             #old=50
         index_path="hr_faiss_index"
     ):
         self.file_paths = file_paths
@@ -27,31 +32,48 @@ class HRPolicyRAG:
         self.retriever = None
 
     def load_documents(self):
-        text = ""
+        docs = []
         for path in self.file_paths:
             if os.path.exists(path):
                 with open(path, "r", encoding="utf-8") as f:
-                    text += f.read() + "\n"
+                    text = f.read()
+                    docs.append({"text": text, "source": os.path.basename(path)})
             else:
                 print(f"[!] File not found: {path}")
-        return text
+        return docs
 
-    def split_documents(self, text):
+    def split_documents(self, docs):
         splitter = CharacterTextSplitter(
             separator="\n",
             chunk_size=self.chunk_size,
             chunk_overlap=self.chunk_overlap,
         )
-        return splitter.create_documents([text])
+
+        all_chunks = []
+        for doc in docs:
+            splits = splitter.split_text(doc["text"])
+            for i, chunk_text in enumerate(splits):
+                chunk = Document(
+                    page_content=chunk_text,
+                    metadata={
+                        "source": doc["source"],
+                        "page": i
+                    }
+                )
+                all_chunks.append(chunk)
+
+        return all_chunks
 
 
     def build_vectorstore(self, chunks):
         if not chunks:
             raise ValueError("[!] No chunks to embed. Check that your documents were loaded and split.")
-        print(" Building vectorstore...")
+        print("Building vectorstore...")
+        print("Example metadata:", chunks[0].metadata)  # <-- Add this to debug
         vectorstore = FAISS.from_documents(chunks, self.embedding)
         vectorstore.save_local(self.index_path)
-        print(" Vectorstore saved to:", self.index_path)
+        print("Vectorstore saved to:", self.index_path)
+
 
 
     def load_vectorstore(self):
@@ -68,8 +90,8 @@ class HRPolicyRAG:
     def query(self, question, top_k=3):
         if not self.retriever:
             raise ValueError("[!] Retriever not loaded. Call load_vectorstore() first.")
-        #docs = self.retriever.get_relevant_documents(question) ->deprecated
-        docs = self.retriever.invoke(question)
+        #docs = self.retriever.get_relevant_documents(question) -> deprecated
+        docs = self.retriever.invoke(question)  #new method
         print(f"\n Top {top_k} chunks for: '{question}'")
         for i, doc in enumerate(docs[:top_k], 1):
             print(f"\n--- Chunk {i} ---\n{doc.page_content}")
@@ -129,16 +151,35 @@ Answer:
             )
             result = qa_chain.invoke({"query": question})
 
-        # Ensure the final return has both required keys
+        # Extract retrieved documents
+            source_docs = result.get("source_documents", [])
+
+        # ✅ Calculate confidence score
+            try:
+                query_embedding = self.embedding.embed_query(question)
+                doc_embeddings = [self.embedding.embed_query(doc.page_content) for doc in source_docs]
+
+                if doc_embeddings:
+                    similarities = cosine_similarity([query_embedding], doc_embeddings)[0]
+                    confidence_score = float(np.mean(similarities))  # You can use np.max(similarities) if you prefer
+                else:
+                    confidence_score = 0.0
+
+            except Exception as e:
+                print(f"[!] Failed to calculate confidence: {e}")
+                confidence_score = 0.0
+
             return {
                 "result": result.get("result", "[No answer returned]"),
-                "source_documents": result.get("source_documents", [])
+                "source_documents": source_docs,
+                "confidence": round(confidence_score, 3)  # e.g. 0.843
             }
 
         except Exception as e:
             return {
                 "result": f"[Error during QA generation: {e}]",
-                "source_documents": []
+                "source_documents": [],
+                "confidence": 0.0
             }
 
 

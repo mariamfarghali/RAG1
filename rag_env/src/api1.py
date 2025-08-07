@@ -14,13 +14,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Global RAG instance
+# Global RAG instance hold the RAG class instance for shared access in the app
 rag = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize and clean up resources"""
-    global rag
+    global rag  #to make it accessible in the app
     try:
         # Setup paths dynamically
         base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -36,6 +36,10 @@ async def lifespan(app: FastAPI):
         )
         # Load vectorstore
         rag.load_vectorstore()
+        #docs = rag.load_documents()
+        #chunks = rag.split_documents(docs)
+        #rag.build_vectorstore(chunks)
+
         logger.info("RAG system initialized successfully")
         yield
     except Exception as e:
@@ -78,18 +82,18 @@ def health_check():
 
 @app.post("/query")
 def ask_question(
-    request: QueryRequest, 
+    request: QueryRequest,
     rag: HRPolicyRAG = Depends(get_rag)
 ):
     try:
         start_time = time.time()
-        
+
         # Process query
         result = rag.generate_adaptive_answer(request.question)
-        
+
         # Calculate processing time
         processing_time = int((time.time() - start_time) * 1000)
-        
+
         # Format sources
         sources = []
         for doc in result.get("source_documents", []):
@@ -100,7 +104,7 @@ def ask_question(
                 source=source,
                 page=page
             ))
-        
+
         return QueryResponse(
             question=request.question,
             answer=result["result"],
