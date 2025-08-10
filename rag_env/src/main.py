@@ -13,9 +13,12 @@ if __name__ == "__main__":
 ]
     rag = HRPolicyRAG(file_paths=files, index_path=index_path)
 
+
     # Build FAISS index (only once)
+    docs = rag.load_documents()
     text = rag.load_documents()
     chunks = rag.split_documents(text)
+
     rag.build_vectorstore(chunks)
 
     # Load index and answer

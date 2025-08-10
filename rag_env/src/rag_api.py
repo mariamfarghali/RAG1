@@ -22,7 +22,6 @@ async def lifespan(app: FastAPI):
     """Initialize and clean up resources"""
     global rag  #to make it accessible in the app
     try:
-        # Setup paths dynamically
         base_dir = os.path.dirname(os.path.abspath(__file__))
         data_dir = os.path.join(base_dir, "..", "data")
         index_dir = os.path.join(base_dir, "..", "hr_faiss_index")
@@ -36,9 +35,6 @@ async def lifespan(app: FastAPI):
         )
         # Load vectorstore
         rag.load_vectorstore()
-        #docs = rag.load_documents()
-        #chunks = rag.split_documents(docs)
-        #rag.build_vectorstore(chunks)
 
         logger.info("RAG system initialized successfully")
         yield
@@ -46,10 +42,9 @@ async def lifespan(app: FastAPI):
         logger.exception("Failed to initialize RAG system")
         raise
     finally:
-        # Cleanup resources if needed
+        # Cleanup resources
         if rag:
             logger.info("Cleaning up RAG resources")
-            # Add any cleanup logic here
 
 app = FastAPI(lifespan=lifespan)
 
@@ -83,7 +78,7 @@ def health_check():
 @app.post("/query")
 def ask_question(
     request: QueryRequest,
-    rag: HRPolicyRAG = Depends(get_rag)
+    rag: HRPolicyRAG = Depends(get_rag) #dependency injection
 ):
     try:
         start_time = time.time()

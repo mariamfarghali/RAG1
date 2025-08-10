@@ -1,4 +1,5 @@
 from langchain.text_splitter import CharacterTextSplitter
+from transformers import AutoTokenizer
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
 import os
@@ -8,18 +9,15 @@ from sklearn.metrics.pairwise import cosine_similarity
 from langchain.chains import RetrievalQA
 from langchain_ollama import ChatOllama
 from langchain_core.documents import Document
-from langchain.prompts import PromptTemplate\
-
-
-
+from langchain.prompts import PromptTemplate
 
 class HRPolicyRAG:
     def __init__(
         self,
         file_paths,
-        model_name="all-MiniLM-L6-v2", #max context window = 128k tokens
-        chunk_size=1500,               #old=500
-        chunk_overlap=200,             #old=50
+        model_name="sentence-transformers/all-MiniLM-L6-v2",
+        chunk_size=250,
+        chunk_overlap=50,
         index_path="hr_faiss_index"
     ):
         self.file_paths = file_paths
@@ -28,10 +26,19 @@ class HRPolicyRAG:
         self.chunk_overlap = chunk_overlap
         self.index_path = index_path
 
+        # Load tokenizer for token counting
+        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+
+        # Initialize embeddings
         self.embedding = HuggingFaceEmbeddings(model_name=self.model_name)
         self.retriever = None
 
+    def count_tokens(self, text):
+        """Count tokens using the model's tokenizer."""
+        return len(self.tokenizer.encode(text, truncation=False))
+
     def load_documents(self):
+        """Load documents from file paths."""
         docs = []
         for path in self.file_paths:
             if os.path.exists(path):
@@ -43,15 +50,22 @@ class HRPolicyRAG:
         return docs
 
     def split_documents(self, docs):
+        """Split documents into token-based chunks and print chunk counts."""
         splitter = CharacterTextSplitter(
-            separator="\n",
+            separator=" ",
             chunk_size=self.chunk_size,
             chunk_overlap=self.chunk_overlap,
+            length_function=self.count_tokens  # Token-based chunking
         )
 
         all_chunks = []
+        total_chunks = 0
+
         for doc in docs:
             splits = splitter.split_text(doc["text"])
+            print(f"{doc['source']}: {self.count_tokens(doc['text'])} tokens → {len(splits)} chunks")
+            total_chunks += len(splits)
+
             for i, chunk_text in enumerate(splits):
                 chunk = Document(
                     page_content=chunk_text,
@@ -62,6 +76,7 @@ class HRPolicyRAG:
                 )
                 all_chunks.append(chunk)
 
+        print(f"\nTotal chunks from all files: {total_chunks}")
         return all_chunks
 
 
@@ -157,11 +172,16 @@ Answer:
         # ✅ Calculate confidence score
             try:
                 query_embedding = self.embedding.embed_query(question)
-                doc_embeddings = [self.embedding.embed_query(doc.page_content) for doc in source_docs]
+                doc_texts = [doc.page_content for doc in source_docs]
+                if hasattr(self.embedding, "embed_documents"):
+                    doc_embeddings = self.embedding.embed_documents(doc_texts)
+                else:
+                    doc_embeddings = [self.embedding.embed_query(text) for text in doc_texts]
 
                 if doc_embeddings:
                     similarities = cosine_similarity([query_embedding], doc_embeddings)[0]
-                    confidence_score = float(np.mean(similarities))  # You can use np.max(similarities) if you prefer
+                    #confidence_score = float(np.mean(similarities))
+                    confidence_score = float(np.max(similarities)) if len(similarities) else 0.0
                 else:
                     confidence_score = 0.0
 
@@ -172,7 +192,7 @@ Answer:
             return {
                 "result": result.get("result", "[No answer returned]"),
                 "source_documents": source_docs,
-                "confidence": round(confidence_score, 3)  # e.g. 0.843
+                "confidence": round(confidence_score, 3)
             }
 
         except Exception as e:
