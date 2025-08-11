@@ -1,18 +1,12 @@
+from .paths_config import HR_POLICY_FILE_1, HR_POLICY_FILE_2, INDEX_DIR
 from fastapi import FastAPI, HTTPException, Depends
 from pydantic import BaseModel
 from .hr_policy_rag import HRPolicyRAG
+from .utilities import Decorators, Strings
+from .logger_config import logger
+from .DTO import QueryRequest, QueryResponse, DocumentSource
 import os
-import time
-import logging
 from contextlib import asynccontextmanager
-from typing import List
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
-logger = logging.getLogger(__name__)
 
 # Global RAG instance hold the RAG class instance for shared access in the app
 rag = None
@@ -22,24 +16,22 @@ async def lifespan(app: FastAPI):
     """Initialize and clean up resources"""
     global rag  #to make it accessible in the app
     try:
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        data_dir = os.path.join(base_dir, "..", "data")
-        index_dir = os.path.join(base_dir, "..", "hr_faiss_index")
         # Init RAG
         rag = HRPolicyRAG(
             file_paths=[
-                os.path.join(data_dir, "HR_Policy_Dataset1.txt"),
-                os.path.join(data_dir, "HR_Policy_Dataset2.txt"),
+                HR_POLICY_FILE_1,
+                HR_POLICY_FILE_2
             ],
-            index_path=index_dir
+            index_path=INDEX_DIR
         )
+        logger.info("RAG system initialized with files: %s", rag.file_paths)
         # Load vectorstore
         rag.load_vectorstore()
 
         logger.info("RAG system initialized successfully")
         yield
     except Exception as e:
-        logger.exception("Failed to initialize RAG system")
+        logger.error("Failed to initialize RAG system: %s", e)
         raise
     finally:
         # Cleanup resources
@@ -47,21 +39,6 @@ async def lifespan(app: FastAPI):
             logger.info("Cleaning up RAG resources")
 
 app = FastAPI(lifespan=lifespan)
-
-class QueryRequest(BaseModel):
-    question: str
-
-class DocumentSource(BaseModel):
-    content: str
-    source: str
-    page: int
-
-class QueryResponse(BaseModel):
-    question: str
-    answer: str
-    processing_time_ms: int
-    confidence: float = None
-    sources: List[DocumentSource] = []
 
 def get_rag() -> HRPolicyRAG:
     if rag is None:
@@ -74,28 +51,21 @@ def health_check():
         "status": "OK",
         "rag_initialized": rag is not None
     }
-
 @app.post("/query")
+@Decorators.time_it
 def ask_question(
     request: QueryRequest,
     rag: HRPolicyRAG = Depends(get_rag) #dependency injection
 ):
     try:
-        start_time = time.time()
-
         # Process query
         result = rag.generate_adaptive_answer(request.question)
-
-        # Calculate processing time
-        processing_time = int((time.time() - start_time) * 1000)
-
-        # Format sources
         sources = []
         for doc in result.get("source_documents", []):
             source = doc.metadata.get("source", "Unknown")
             page = doc.metadata.get("page", 0)
             sources.append(DocumentSource(
-                content=doc.page_content[:500] + "..." if len(doc.page_content) > 500 else doc.page_content,
+                content=doc.page_content[:Strings.max_content_length] + "..." if len(doc.page_content) > Strings.max_content_length else doc.page_content,
                 source=source,
                 page=page
             ))
@@ -103,7 +73,6 @@ def ask_question(
         return QueryResponse(
             question=request.question,
             answer=result["result"],
-            processing_time_ms=processing_time,
             confidence=result.get("confidence", 0.0),
             sources=sources
         )
@@ -114,4 +83,3 @@ def ask_question(
 @app.get("/")
 def read_root():
     return {"message": "RAG API is running!"}
-

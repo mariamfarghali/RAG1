@@ -1,39 +1,31 @@
-from hr_policy_rag import HRPolicyRAG
-import os
+from src.hr_policy_rag import HRPolicyRAG
+from src.paths_config import HR_POLICY_FILE_1, HR_POLICY_FILE_2, INDEX_DIR
 
 if __name__ == "__main__":
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    data_dir = os.path.join(base_dir, "..", "data")
-    index_path = os.path.join(base_dir, "..", "hr_faiss_index")
-
-
-    files = [
-    os.path.join(data_dir, "HR_Policy_Dataset1.txt"),
-    os.path.join(data_dir, "HR_Policy_Dataset2.txt")
-]
-    rag = HRPolicyRAG(file_paths=files, index_path=index_path)
-
+    # Initialize RAG system
+    rag = HRPolicyRAG(
+        file_paths=[HR_POLICY_FILE_1, HR_POLICY_FILE_2],
+        index_path=INDEX_DIR
+    )
 
     # Build FAISS index (only once)
     docs = rag.load_documents()
-    text = rag.load_documents()
-    chunks = rag.split_documents(text)
-
+    chunks = rag.split_documents(docs)
     rag.build_vectorstore(chunks)
 
-    # Load index and answer
+    # Load index and answer questions
     rag.load_vectorstore()
 
     while True:
-        question = input("\n Ask a question (or 'exit'): ")
+        question = input("\nAsk a question (or 'exit'): ")
         if question.lower() == "exit":
             break
 
         result = rag.generate_adaptive_answer(question)
 
-        print("\n Answer:")
+        print("\nAnswer:")
         print(result['result'])
 
-        print("\n Sources:")
+        print("\nSources:")
         for doc in result['source_documents'][:3]:
             print(f"- {doc.page_content[:150]}...")
